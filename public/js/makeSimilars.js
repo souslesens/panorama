@@ -1,3 +1,5 @@
+import Panorama_bot from "./panorama_bot.js";
+
 var MakeSimilars = (function () {
 
     var self = {}
@@ -123,19 +125,24 @@ var MakeSimilars = (function () {
                         }
 
 
+                        // Keep only the best (first, highest-scored) hit per source — like the original
+                        // unspsc script which reads only column C (the top UNSPSC target). forEach can't
+                        // break, so the counter + return short-circuits every hit after the first.
+                        var counter = 0;
                         item.hits.hits.forEach(function (hit) {
+                            if (counter > 0) {
+                                return;
+                            }
+                            counter++;
                             var nToWord = hit._source.label.split(" ").length;
-                            if (nFromWord == nToWord) {
-                               ;
-                            } //same number of words
+                            if (nFromWord >= nToWord) {
                                 if (!similars[fromWord]) {
                                     similars[fromWord] = {}
                                 }
                                 similars[fromWord][hit._source.id] = {
                                     label: hit._source.label, score: hit._score
                                 }
-
-
+                            }
                         })
                         if (!similars[fromWord]) {
                             orphans.push(fromWord)
@@ -257,6 +264,17 @@ var MakeSimilars = (function () {
             if (err) {
                 return alert(err)
             }
+            // Alignment bot: pass bulkSimilars (the structured data behind str) to the workflow:
+            // split exact/non-exact -> validate -> generate equivalentClass -> show non-exacts (to LLM)
+            Panorama_bot.start(null, {
+                bulkSimilars: bulkSimilars,
+                fromWordsMap: fromWordsMap,
+                source: fromSource,
+                targetSource: toSource,
+                botDivId: "Panorama_botDiv",
+                validationDivId: "Panorama_validationDiv",
+                nonExactDivId: "Panorama_nonExactDiv",
+            })
         })
 
 
@@ -271,9 +289,10 @@ var MakeSimilars = (function () {
         self.currentTargetContainerId = "http://souslesens/ontology/unspsc/20000000"
 
 
-   self.currentSource = "ISO-14224-IOF-RDL"
-     self.currentSourceContainerId = "http://datalenergies.total.com/resource/tsf/iso-14224-iof-rdl/Equipments"
-        self.currentTargetSource = "CFIHOS-IOF"
+        // Disabled: this source does not exist in this instance (was causing the crash)
+        // self.currentSource = "ISO-14224-IOF-RDL"
+        // self.currentSourceContainerId = "http://datalenergies.total.com/resource/tsf/iso-14224-iof-rdl/Equipments"
+        // self.currentTargetSource = "CFIHOS-IOF"
 
         self.listSimilars()
 

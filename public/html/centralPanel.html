@@ -3,6 +3,17 @@
         width: 800px;
         height: 600px;
     }
+    /* make tab: keep the whole flow visible (smaller container trees + scrollable area) */
+    #Panorama_makeSimilarsTab {
+        overflow: auto;
+        max-height: 760px;
+    }
+    #Panorama_makeSimilarsTab #Panorama_sourceContainersDiv,
+    #Panorama_makeSimilarsTab #Panorama_targetContainersDiv {
+        width: 380px;
+        height: 260px;
+        overflow: auto;
+    }
 </style>
 
 <div id="Panorama_centralPanelDiv" style="display: flex; flex-direction: row; width: 100%; height: 800px">
@@ -22,22 +33,40 @@
         <div id="Panorama_overviewTab">
 
         </div>
-        <div id="Panorama_makeSimilarsTab" style="display:flex;flex-direction: row">
-            <div>
+        <div id="Panorama_makeSimilarsTab" style="display:flex;flex-direction: column">
+            <div style="display:flex;flex-direction: row">
                 <div>
-                    <button onclick="Panorama.openSource()">choose source</button>
+                    <div>
+                        <button onclick="Panorama.openSource()">choose source</button>
 
-                    <button onclick="Panorama.listSimilars()">list similars</button>
+                        <button onclick="Panorama.listSimilars()">list similars</button>
+                    </div>
+                    <div id="Panorama_sourceContainersDiv" class="browseRightPanel"></div>
                 </div>
-                <div id="Panorama_sourceContainersDiv" class="browseRightPanel"></div>
+
+                <div>
+                    <div>
+                       <!-- <button onclick="Panorama.openSource()">choose source</button>-->
+                        UNSPSC
+                    </div>
+                    <div id="Panorama_targetContainersDiv" class="browseRightPanel"></div>
+                </div>
             </div>
 
-            <div>
-                <div>
-                   <!-- <button onclick="Panorama.openSource()">choose source</button>-->
-                    UNSPSC
-                </div>
-                <div id="Panorama_targetContainersDiv" class="browseRightPanel"></div>
+            <!-- Alignment bot panel (step buttons: "Generate equivalent classes", etc.) -->
+            <div id="Panorama_botDiv" style="margin-top:10px;"></div>
+
+            <!-- Step "Validate exact matches" (grouped by source): revealed after "list similars" -->
+            <div style="display:none;margin-top:10px;">
+                <b>Exact matches — uncheck to exclude</b>
+                <div id="Panorama_validationHeader" style="font-weight:bold;border-bottom:1px solid #999;padding:2px 0;"></div>
+                <div id="Panorama_validationDiv" style="max-height:300px;overflow:auto;border:1px solid #ddd;padding:5px;"></div>
+            </div>
+
+            <!-- Step "Non-exact matches" (grouped by source): revealed after "Generate equivalent classes" -->
+            <div style="display:none;margin-top:10px;">
+                <b>Non-exact matches (to LLM)</b>
+                <div id="Panorama_nonExactDiv" style="max-height:300px;overflow:auto;border:1px solid #ddd;padding:5px;"></div>
             </div>
 
         </div>
