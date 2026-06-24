@@ -125,16 +125,16 @@ var MakeSimilars = (function () {
 
                         item.hits.hits.forEach(function (hit) {
                             var nToWord = hit._source.label.split(" ").length;
-                            if (nFromWord == nToWord) {
-                               ;
-                            } //same number of words
+                            if (nFromWord >= nToWord) {
+
+                            //same number of words
                                 if (!similars[fromWord]) {
                                     similars[fromWord] = {}
                                 }
                                 similars[fromWord][hit._source.id] = {
                                     label: hit._source.label, score: hit._score
                                 }
-
+                            }
 
                         })
                         if (!similars[fromWord]) {
@@ -271,7 +271,7 @@ var MakeSimilars = (function () {
         self.currentTargetContainerId = "http://souslesens/ontology/unspsc/20000000"
 
 
-   self.currentSource = "ISO-14224-IOF-RDL"
+ self.currentSource = "ISO-14224-IOF-RDL"
      self.currentSourceContainerId = "http://datalenergies.total.com/resource/tsf/iso-14224-iof-rdl/Equipments"
         self.currentTargetSource = "CFIHOS-IOF"
 
