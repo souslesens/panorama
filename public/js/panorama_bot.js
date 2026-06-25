@@ -32,6 +32,7 @@ var Panorama_bot = (function () {
             targetSource: null,
             validationDivId: "Panorama_validationDiv",
             nonExactDivId: "Panorama_nonExactDiv",
+            aiDivId: "Panorama_aiDiv",
             exact: [],
             nonExact: [],
         };
@@ -57,7 +58,15 @@ var Panorama_bot = (function () {
             splitFn: {
                 showValidationFn: {
                     _OR: {
-                        "Generate equivalent classes": { generateEquivalentClassFn: { showNonExactFn: { endFn: {} } } },
+                        "Generate equivalent classes": {
+                            generateEquivalentClassFn: {
+                                showNonExactFn: {
+                                    _OR: {
+                                        "AI treatment": { buildDefinitionsFn: { aiTreatmentFn: { endFn: {} } } },
+                                    },
+                                },
+                            },
+                        },
                     },
                 },
             },
@@ -70,6 +79,8 @@ var Panorama_bot = (function () {
         showValidationFn: "Validate exact matches (uncheck to exclude)",
         generateEquivalentClassFn: "Generate equivalent classes",
         showNonExactFn: "Show non-exact matches",
+        buildDefinitionsFn: "Build class definitions (for LLM)",
+        aiTreatmentFn: "AI treatment (classify non-exacts)",
     };
 
     self.functions = {
@@ -77,7 +88,13 @@ var Panorama_bot = (function () {
             self.myBotEngine.nextStep();
         },
         endFn: function () {
-            self.myBotEngine.end();
+            // Panorama runs the bot in a plain div (not a jQuery UI dialog), so the engine's closeDialog()
+            // throws "cannot call methods on dialog prior to initialization" — harmless, so swallow it.
+            try {
+                self.myBotEngine.end();
+            } catch (e) {
+                // no dialog to close in the embedded-div bot
+            }
         },
         splitFn: function () {
             var result = AlignWorkflow.splitExactMatches(self.params.bulkSimilars, self.params.fromWordsMap);
@@ -117,6 +134,35 @@ var Panorama_bot = (function () {
         showNonExactFn: function () {
             AlignWorkflow.renderNonExact(self.params.nonExactDivId, self.params.nonExact);
             self.myBotEngine.nextStep();
+        },
+        buildDefinitionsFn: function () {
+            // Builds AlignWorkflow.definitions (source + target class definitions) for the LLM step. No UI.
+            AlignWorkflow.buildDefinitions(self.params.source, self.params.targetSource, self.params.nonExact, function (err) {
+                if (err) {
+                    var message = err.message;
+                    if (!message) {
+                        message = err;
+                    }
+                    window.UI.message("Error fetching definitions: " + message, true);
+                    return;
+                }
+                self.myBotEngine.nextStep();
+            });
+        },
+        aiTreatmentFn: function () {
+            // Classifies the non-exacts via the AI route (non-exacts + definitions table), using the
+            // model configured in mainConfig.llm. Also persists the input for the benchmark script.
+            AlignWorkflow.runAiTreatment(self.params.source, self.params.targetSource, self.params.nonExact, AlignWorkflow.definitions, self.params.aiDivId, function (err) {
+                if (err) {
+                    var message = err.message;
+                    if (!message) {
+                        message = err;
+                    }
+                    window.UI.message("Error during AI treatment: " + message, true);
+                    return;
+                }
+                self.myBotEngine.nextStep();
+            });
         },
     };
 

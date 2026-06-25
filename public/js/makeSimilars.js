@@ -274,6 +274,7 @@ var MakeSimilars = (function () {
                 botDivId: "Panorama_botDiv",
                 validationDivId: "Panorama_validationDiv",
                 nonExactDivId: "Panorama_nonExactDiv",
+                aiDivId: "Panorama_aiDiv",
             })
         })
 

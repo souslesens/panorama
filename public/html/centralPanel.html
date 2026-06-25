@@ -56,10 +56,10 @@
             <!-- Alignment bot panel (step buttons: "Generate equivalent classes", etc.) -->
             <div id="Panorama_botDiv" style="margin-top:10px;"></div>
 
-            <!-- Step "Validate exact matches" (grouped by source): revealed after "list similars" -->
+            <!-- Step "Validate exact matches" (flat 2 columns): revealed after "list similars" -->
             <div style="display:none;margin-top:10px;">
                 <b>Exact matches — uncheck to exclude</b>
-                <div id="Panorama_validationHeader" style="font-weight:bold;border-bottom:1px solid #999;padding:2px 0;"></div>
+                <div id="Panorama_validationHeader" style="font-weight:bold;border-bottom:1px solid #999;padding:2px 0 2px 40px;"></div>
                 <div id="Panorama_validationDiv" style="max-height:300px;overflow:auto;border:1px solid #ddd;padding:5px;"></div>
             </div>
 
@@ -67,6 +67,12 @@
             <div style="display:none;margin-top:10px;">
                 <b>Non-exact matches (to LLM)</b>
                 <div id="Panorama_nonExactDiv" style="max-height:300px;overflow:auto;border:1px solid #ddd;padding:5px;"></div>
+            </div>
+
+            <!-- Step "AI treatment": revealed after the definitions are built (LLM classification result) -->
+            <div style="display:none;margin-top:10px;">
+                <b>AI treatment (classified non-exacts)</b>
+                <div id="Panorama_aiDiv" style="max-height:300px;overflow:auto;border:1px solid #ddd;padding:5px;"></div>
             </div>
 
         </div>
