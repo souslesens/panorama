@@ -125,15 +125,7 @@ var MakeSimilars = (function () {
                         }
 
 
-                        // Keep only the best (first, highest-scored) hit per source — like the original
-                        // unspsc script which reads only column C (the top UNSPSC target). forEach can't
-                        // break, so the counter + return short-circuits every hit after the first.
-                        var counter = 0;
                         item.hits.hits.forEach(function (hit) {
-                            if (counter > 0) {
-                                return;
-                            }
-                            counter++;
                             var nToWord = hit._source.label.split(" ").length;
                             if (nFromWord >= nToWord) {
                                 if (!similars[fromWord]) {
