@@ -35,6 +35,15 @@ var AlignWorkflow = (function () {
     }
 
     /**
+     * Escapes a string for use inside a regular expression (for exact column filtering).
+     * @param {string} str - The raw string.
+     * @returns {string} The escaped string.
+     */
+    function escapeRegExp(str) {
+        return String(str == null ? "" : str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+
+    /**
      * Formats a numeric score with one decimal, or an empty string when absent.
      * @param {number} score - The ElasticSearch score.
      * @returns {string} The formatted score.
@@ -397,52 +406,101 @@ var AlignWorkflow = (function () {
     };
 
     /**
-     * Renders the AI-treatment result: model, token usage, per-category counts and the per-pair table.
+     * Renders the AI-treatment result: model, token usage and per-category counts, then the per-pair
+     * classification as a DataTable (built-in search filter + CSV export) whose first two columns are
+     * named after the real source/target (CFIHOS / UNSPSC), followed by "ai category" and "reason".
      * @param {string} divId - The container div id.
      * @param {Object} response - The /api/v1/alignment response.
+     * @param {string} fromSource - Source-from name (used as the first column header).
+     * @param {string} targetSource - Target source name (used as the second column header).
      * @returns {void}
      */
-    function renderAiTreatment(divId, response) {
+    function renderAiTreatment(divId, response, fromSource, targetSource) {
         $("#" + divId).parent().show();
         var counts = response.counts || {};
         var usage = response.usage || {};
         var inputTokens = usage.input_tokens || 0;
         var outputTokens = usage.output_tokens || 0;
         var totalTokens = inputTokens + outputTokens;
-        var html = "<div style='margin-bottom:6px;'>";
-        html += "<b>Model:</b> " + escapeHtml(response.model || "") + "<br>";
-        html += "<b>Tokens used:</b> " + totalTokens + " (" + inputTokens + " in + " + outputTokens + " out)</div>";
 
-        html += "<div style='margin-bottom:6px;'>";
+        var infoHtml = "<div style='margin-bottom:6px;'>";
+        infoHtml += "<b>Model:</b> " + escapeHtml(response.model || "") + "<br>";
+        infoHtml += "<b>Tokens used:</b> " + totalTokens + " (" + inputTokens + " in + " + outputTokens + " out)</div>";
+
+        infoHtml += "<div style='margin-bottom:6px;'>";
         ["Exact match AI", "SubclassOf", "SubclassOf inverse", "Not match", "Unknown", "Other"].forEach(function (category) {
             var value = counts[category];
             if (!value) {
                 value = 0;
             }
-            html += "<span style='margin-right:12px;'>" + escapeHtml(category) + ": <b>" + value + "</b></span>";
+            infoHtml += "<span style='margin-right:12px;'>" + escapeHtml(category) + ": <b>" + value + "</b></span>";
         });
-        html += "</div>";
+        infoHtml += "</div>";
 
         if (response.parseError) {
-            html += "<div style='color:#c00;'>parse error: " + escapeHtml(response.parseError) + "</div>";
+            infoHtml += "<div style='color:#c00;'>parse error: " + escapeHtml(response.parseError) + "</div>";
         }
-
-        var classifications = response.classifications || [];
-        html += "<table style='border-collapse:collapse;width:100%;'>";
-        html += "<thead><tr>";
-        html += "<th style='text-align:left;border-bottom:1px solid #ccc;'>source</th>";
-        html += "<th style='text-align:left;border-bottom:1px solid #ccc;'>target</th>";
-        html += "<th style='text-align:left;border-bottom:1px solid #ccc;'>AI category</th>";
-        html += "<th style='text-align:left;border-bottom:1px solid #ccc;'>reason</th>";
-        html += "</tr></thead><tbody>";
-        classifications.forEach(function (item) {
-            html += "<tr><td style='vertical-align:top;'>" + escapeHtml(item.srcLabel) + "</td>";
-            html += "<td style='vertical-align:top;'>" + escapeHtml(item.tgtLabel) + "</td>";
-            html += "<td style='vertical-align:top;white-space:nowrap;'>" + escapeHtml(item.category) + "</td>";
-            html += "<td>" + escapeHtml(item.reason) + "</td></tr>";
+        // Excel-like filter: a dropdown to keep only one ai category (built from the categories present).
+        var presentCategories = [];
+        var seenCategory = {};
+        (response.classifications || []).forEach(function (item) {
+            var category = item.category;
+            if (category && !seenCategory[category]) {
+                seenCategory[category] = true;
+                presentCategories.push(category);
+            }
         });
-        html += "</tbody></table>";
-        $("#" + divId).html(html);
+        var selectId = divId + "_catFilter";
+        infoHtml += "<div style='margin:6px 0;'><label style='margin-right:6px;'><b>ai category:</b></label>";
+        infoHtml += "<select id='" + selectId + "'><option value=''>(all)</option>";
+        presentCategories.forEach(function (category) {
+            infoHtml += "<option value='" + escapeHtml(category) + "'>" + escapeHtml(category) + "</option>";
+        });
+        infoHtml += "</select></div>";
+
+        // Dedicated sub-div for the DataTable (Export.showDataTable replaces its content).
+        infoHtml += "<div id='" + divId + "_table'></div>";
+        $("#" + divId).html(infoHtml);
+
+        var fromName = fromSource;
+        if (!fromName) {
+            fromName = "source";
+        }
+        var targetName = targetSource;
+        if (!targetName) {
+            targetName = "target";
+        }
+        // 4 named columns: <source name (CFIHOS)> | <target name (UNSPSC)> | ai category | reason.
+        var cols = [
+            { title: fromName, defaultContent: "" },
+            { title: targetName, defaultContent: "" },
+            { title: "ai category", defaultContent: "" },
+            { title: "reason", defaultContent: "" },
+        ];
+        var dataSet = (response.classifications || []).map(function (item) {
+            return [item.srcLabel || "", item.tgtLabel || "", item.category || "", item.reason || ""];
+        });
+        if (dataSet.length === 0) {
+            return;
+        }
+        // "Brtip" dom = Buttons (Export CSV/copy) + table + info + paging, WITHOUT the global search box.
+        window.Export.showDataTable(divId + "_table", cols, dataSet, "Brtip", {
+            dataTableDivId: "Panorama_aiTable",
+            paging: true,
+            height: "auto",
+            width: "100%",
+        });
+
+        // Wire the dropdown to filter the "ai category" column (index 2) on an exact match.
+        var aiTable = window.Export.dataTable;
+        $("#" + selectId).on("change", function () {
+            var value = $(this).val();
+            if (!value) {
+                aiTable.column(2).search("").draw();
+            } else {
+                aiTable.column(2).search("^" + escapeRegExp(value) + "$", true, false).draw();
+            }
+        });
     }
 
     /**
@@ -469,8 +527,11 @@ var AlignWorkflow = (function () {
             data: JSON.stringify(payload),
             dataType: "json",
             success: function (response) {
+                // Keep the source/target names with the result for the DataTable headers and later export.
+                response.fromSource = fromSource;
+                response.targetSource = targetSource;
                 self.aiTreatment = response;
-                renderAiTreatment(divId, response);
+                renderAiTreatment(divId, response, fromSource, targetSource);
                 callback(null, response);
             },
             error: function (jqXHR) {
