@@ -128,6 +128,7 @@ var MakeSimilars = (function () {
                         item.hits.hits.forEach(function (hit) {
                             var nToWord = hit._source.label.split(" ").length;
                             if (nFromWord >= nToWord) {
+                                //same number of words
                                 if (!similars[fromWord]) {
                                     similars[fromWord] = {}
                                 }
