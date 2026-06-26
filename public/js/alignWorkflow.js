@@ -544,6 +544,298 @@ var AlignWorkflow = (function () {
         });
     };
 
+    // ── AI-classification post-processing (equivalent / subclass / export) ──────
+
+    var RDFS_SUBCLASSOF = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
+
+    /**
+     * Enriches LLM classifications (label-only) with the srcUri/tgtUri recovered from the original
+     * non-exact pairs, matched on (srcLabel, tgtLabel).
+     * @param {Array} classifications - [{ srcLabel, tgtLabel, category, reason }].
+     * @param {Array} pairs - Non-exact pairs with { srcUri, srcLabel, tgtUri, tgtLabel }.
+     * @returns {Array} Enriched items [{ srcUri, srcLabel, tgtUri, tgtLabel, category, reason }].
+     */
+    self.enrichWithUris = function (classifications, pairs) {
+        var pairByLabels = {};
+        (pairs || []).forEach(function (pair) {
+            var key = pair.srcLabel + NODE_ID_SEPARATOR + pair.tgtLabel;
+            if (!pairByLabels[key]) {
+                pairByLabels[key] = pair;
+            }
+        });
+        var enriched = [];
+        (classifications || []).forEach(function (classification) {
+            var key = classification.srcLabel + NODE_ID_SEPARATOR + classification.tgtLabel;
+            var pair = pairByLabels[key];
+            var srcUri = null;
+            var tgtUri = null;
+            if (pair) {
+                srcUri = pair.srcUri;
+                tgtUri = pair.tgtUri;
+            }
+            enriched.push({
+                srcUri: srcUri,
+                srcLabel: classification.srcLabel,
+                tgtUri: tgtUri,
+                tgtLabel: classification.tgtLabel,
+                category: classification.category,
+                reason: classification.reason,
+            });
+        });
+        return enriched;
+    };
+
+    /**
+     * Splits enriched classifications into per-category buckets.
+     * @param {Array} enriched - Enriched items with a `category`.
+     * @returns {Object} { exactAi, subclassOf, subclassOfInverse, notMatch, unknown, other }.
+     */
+    self.splitByAiCategory = function (enriched) {
+        var buckets = { exactAi: [], subclassOf: [], subclassOfInverse: [], notMatch: [], unknown: [], other: [] };
+        (enriched || []).forEach(function (item) {
+            var category = String(item.category || "").trim().toLowerCase();
+            if (category === "exact match ai") {
+                buckets.exactAi.push(item);
+            } else if (category === "subclassof") {
+                buckets.subclassOf.push(item);
+            } else if (category === "subclassof inverse") {
+                buckets.subclassOfInverse.push(item);
+            } else if (category === "not match") {
+                buckets.notMatch.push(item);
+            } else if (category === "unknown") {
+                buckets.unknown.push(item);
+            } else {
+                buckets.other.push(item);
+            }
+        });
+        return buckets;
+    };
+
+    /**
+     * Renders a flat, all-checked jsTree of pairs (source | target | category) into divId.
+     * @param {string} divId - The tree container div id.
+     * @param {Array} pairs - Enriched pairs.
+     * @param {function} onReady - Called once the tree is loaded and checked.
+     * @returns {void}
+     */
+    self.renderAiCheckTree = function (divId, pairs, onReady) {
+        self._aiPairByNodeId = {};
+        var jstreeData = [];
+        pairs.forEach(function (pair) {
+            var nodeId = pairNodeId(pair);
+            self._aiPairByNodeId[nodeId] = pair;
+            var text = "<span style='display:inline-block;min-width:200px'>" + escapeHtml(pair.srcLabel) + "</span>";
+            text += "<span style='display:inline-block;min-width:200px'>" + escapeHtml(pair.tgtLabel) + "</span>";
+            text += "<span style='color:#888'>" + escapeHtml(pair.category) + "</span>";
+            jstreeData.push({ id: nodeId, parent: "#", text: text, data: { type: "pair", pair: pair } });
+        });
+        var options = { withCheckboxes: true };
+        window.JstreeWidget.loadJsTree(divId, jstreeData, options, function () {
+            var tree = $("#" + divId).jstree(true);
+            if (tree && tree.check_all) {
+                tree.check_all();
+            }
+            if (onReady) {
+                onReady();
+            }
+        });
+    };
+
+    /**
+     * Reads an AI-check tree and splits its pairs into checked / unchecked.
+     * @param {string} divId - The tree container div id.
+     * @returns {{checked: Array, unchecked: Array}}
+     */
+    self.getAiCheckSplit = function (divId) {
+        var tree = $("#" + divId).jstree(true);
+        var checkedSet = {};
+        if (tree && tree.get_checked) {
+            tree.get_checked().forEach(function (id) {
+                checkedSet[id] = 1;
+            });
+        }
+        var checked = [];
+        var unchecked = [];
+        Object.keys(self._aiPairByNodeId).forEach(function (nodeId) {
+            var pair = self._aiPairByNodeId[nodeId];
+            if (checkedSet[nodeId]) {
+                checked.push(pair);
+            } else {
+                unchecked.push(pair);
+            }
+        });
+        return { checked: checked, unchecked: unchecked };
+    };
+
+    /**
+     * Renders a validation step: a pre-checked jsTree of pairs + "Enregistrer" / "Exporter (CSV)" buttons.
+     * @param {string} divId - The step container div id.
+     * @param {Array} pairs - Pairs to display (all pre-checked).
+     * @param {Object} options - { title }.
+     * @param {function} onSave - Called with the tree div id when "Enregistrer" is clicked.
+     * @param {function} onExport - Called with the tree div id when "Exporter" is clicked.
+     * @returns {void}
+     */
+    self.renderAiValidationStep = function (divId, pairs, options, onSave, onExport) {
+        $("#" + divId).parent().show();
+        var treeDivId = divId + "_tree";
+        var saveBtnId = divId + "_save";
+        var exportBtnId = divId + "_export";
+        var title = "";
+        if (options && options.title) {
+            title = options.title;
+        }
+        var html = "";
+        if (title) {
+            html += "<div style='margin-bottom:4px;font-weight:bold;'>" + escapeHtml(title) + " (" + pairs.length + ")</div>";
+        }
+        if (pairs.length === 0) {
+            html += "<div style='color:#888;margin-bottom:4px;'>(aucune ligne dans cette catégorie)</div>";
+        }
+        html += "<div id='" + treeDivId + "' style='max-height:300px;overflow:auto;'></div>";
+        html += "<div style='margin-top:6px;'>";
+        html += "<button id='" + saveBtnId + "' style='margin-right:6px;'>Enregistrer</button>";
+        html += "<button id='" + exportBtnId + "'>Exporter (CSV)</button>";
+        html += "</div>";
+        $("#" + divId).html(html);
+
+        function wireButtons() {
+            $("#" + saveBtnId)
+                .off("click")
+                .on("click", function () {
+                    onSave(treeDivId);
+                });
+            $("#" + exportBtnId)
+                .off("click")
+                .on("click", function () {
+                    onExport(treeDivId);
+                });
+        }
+
+        if (pairs.length === 0) {
+            self._aiPairByNodeId = {};
+            wireButtons();
+            return;
+        }
+        self.renderAiCheckTree(treeDivId, pairs, wireButtons);
+    };
+
+    /**
+     * Inserts rdfs:subClassOf triples for the given pairs. For "SubclassOf" the source is a subclass of
+     * the target; for "SubclassOf inverse" the target is a subclass of the source (source = superclass).
+     * @param {string} source - The source whose graph receives the triples.
+     * @param {Array} pairs - Pairs with srcUri / tgtUri / category.
+     * @param {function} callback - callback(err, insertedCount).
+     * @returns {void}
+     */
+    self.generateSubClasses = function (source, pairs, callback) {
+        if (!pairs || pairs.length === 0) {
+            return callback(null, 0);
+        }
+        var triples = [];
+        pairs.forEach(function (pair) {
+            if (!pair.srcUri || !pair.tgtUri) {
+                return;
+            }
+            var category = String(pair.category || "").trim().toLowerCase();
+            if (category === "subclassof inverse") {
+                triples.push({ subject: pair.tgtUri, predicate: RDFS_SUBCLASSOF, object: pair.srcUri });
+            } else {
+                triples.push({ subject: pair.srcUri, predicate: RDFS_SUBCLASSOF, object: pair.tgtUri });
+            }
+        });
+        if (triples.length === 0) {
+            return callback(null, 0);
+        }
+        window.Sparql_generic.insertTriples(source, triples, {}, function (err) {
+            if (err) {
+                return callback(err);
+            }
+            callback(null, triples.length);
+        });
+    };
+
+    /**
+     * Escapes a value for a semicolon-separated CSV cell.
+     * @param {*} value
+     * @returns {string}
+     */
+    function toCsvCell(value) {
+        var text = String(value == null ? "" : value);
+        if (text.indexOf(";") !== -1 || text.indexOf('"') !== -1 || text.indexOf("\n") !== -1 || text.indexOf("\r") !== -1) {
+            return '"' + text.replace(/"/g, '""') + '"';
+        }
+        return text;
+    }
+
+    /**
+     * Triggers a client-side CSV download of the given pairs.
+     * @param {Array} pairs - The rows.
+     * @param {Array} columns - [{ header, field }].
+     * @param {string} fileName - The download file name.
+     * @returns {void}
+     */
+    self.exportPairsToCsv = function (pairs, columns, fileName) {
+        var lines = [];
+        var headerCells = columns.map(function (column) {
+            return toCsvCell(column.header);
+        });
+        lines.push(headerCells.join(";"));
+        (pairs || []).forEach(function (pair) {
+            var cells = columns.map(function (column) {
+                return toCsvCell(pair[column.field]);
+            });
+            lines.push(cells.join(";"));
+        });
+        var csv = lines.join("\r\n");
+        var blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+        var url = URL.createObjectURL(blob);
+        var link = document.createElement("a");
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
+
+    /**
+     * Renders the final "remaining" step: a read-only table + a single "Exporter (CSV)" button.
+     * @param {string} divId - The container div id.
+     * @param {Array} pairs - Remaining pairs.
+     * @param {string} fromSource - Source-from name (column header).
+     * @param {string} targetSource - Target source name (column header).
+     * @param {function} onExport - Called when "Exporter" is clicked.
+     * @returns {void}
+     */
+    self.renderRemaining = function (divId, pairs, fromSource, targetSource, onExport) {
+        $("#" + divId).parent().show();
+        var exportBtnId = divId + "_export";
+        var fromName = fromSource || "source";
+        var targetName = targetSource || "target";
+        var html = "<div style='margin-bottom:4px;font-weight:bold;'>Reste à exporter (Not match / Unknown / Other / décochés) — " + pairs.length + " lignes</div>";
+        html += "<div style='margin-bottom:6px;'><button id='" + exportBtnId + "'>Exporter (CSV)</button></div>";
+        html += "<table style='border-collapse:collapse;width:100%;'><thead><tr>";
+        html += "<th style='text-align:left;border-bottom:1px solid #ccc;'>" + escapeHtml(fromName) + "</th>";
+        html += "<th style='text-align:left;border-bottom:1px solid #ccc;'>" + escapeHtml(targetName) + "</th>";
+        html += "<th style='text-align:left;border-bottom:1px solid #ccc;'>ai category</th>";
+        html += "<th style='text-align:left;border-bottom:1px solid #ccc;'>reason</th>";
+        html += "</tr></thead><tbody>";
+        (pairs || []).forEach(function (pair) {
+            html += "<tr><td style='vertical-align:top;'>" + escapeHtml(pair.srcLabel) + "</td>";
+            html += "<td style='vertical-align:top;'>" + escapeHtml(pair.tgtLabel) + "</td>";
+            html += "<td style='vertical-align:top;white-space:nowrap;'>" + escapeHtml(pair.category) + "</td>";
+            html += "<td>" + escapeHtml(pair.reason) + "</td></tr>";
+        });
+        html += "</tbody></table>";
+        $("#" + divId).html(html);
+        $("#" + exportBtnId)
+            .off("click")
+            .on("click", function () {
+                onExport();
+            });
+    };
+
     return self;
 })();
 
