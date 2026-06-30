@@ -111,7 +111,13 @@ var Panorama_bot = (function () {
                                                             equivalentClassAiFn: {
                                                                 _OR: {
                                                                     "Generate subclass of and inverse subclass of": {
-                                                                        subclassAiFn: { remainingFn: { endFn: {} } },
+                                                                        subclassAiFn: {
+                                                                            _OR: {
+                                                                                "Show remaining": {
+                                                                                    remainingFn: { endFn: {} },
+                                                                                },
+                                                                            },
+                                                                        },
                                                                     },
                                                                 },
                                                             },
@@ -212,6 +218,7 @@ var Panorama_bot = (function () {
         },
         aiTreatmentFn: function () {
             hideOtherStepSections(self.params.aiDivId);
+            alert("AI treatment may take a few minutes — please wait for it to finish.");
             // Classifies the non-exacts via the AI route (non-exacts + definitions table), using the
             // model configured in mainConfig.llm.
             AlignWorkflow.runAiTreatment(self.params.source, self.params.targetSource, self.params.nonExact, AlignWorkflow.definitions, self.params.aiDivId, function (err) {
@@ -239,28 +246,43 @@ var Panorama_bot = (function () {
             }
             var columns = aiCsvColumns(self.params.source, self.params.targetSource);
 
+            // "generate AI equivalent class" creates the triples (does NOT advance); "Exporter" exports;
+            // "generate subclass of and inverse subclass of" advances to the subclass step (no save required).
             var onSave = function (treeDivId) {
                 var split = AlignWorkflow.getAiCheckSplit(treeDivId);
-                self.params.aiRemaining = self.params.aiRemaining.concat(split.unchecked);
                 AlignWorkflow.generateEquivalentClasses(self.params.source, split.checked, function (err, insertedCount) {
                     if (err) {
                         window.UI.message("Error inserting equivalentClass: " + (err.message || err), true);
                         return;
                     }
                     window.UI.message(insertedCount + " equivalent classes generated in " + self.params.source, true);
-                    self.myBotEngine.nextStep();
                 });
             };
             var onExport = function (treeDivId) {
                 var split = AlignWorkflow.getAiCheckSplit(treeDivId);
-                self.params.aiRemaining = self.params.aiRemaining.concat(split.unchecked);
                 AlignWorkflow.exportPairsToCsv(split.checked, columns, "equivalent_class_AI.csv");
-                self.myBotEngine.nextStep();
             };
-            AlignWorkflow.renderAiValidationStep(self.params.aiEquivDivId, self.params.aiBuckets.exactAi, { title: "Exact match AI → equivalentClass", sourceName: self.params.source, targetName: self.params.targetSource }, onSave, onExport);
+            AlignWorkflow.renderAiValidationStep(
+                self.params.aiEquivDivId,
+                self.params.aiBuckets.exactAi,
+                {
+                    title: "Exact match AI → equivalentClass",
+                    sourceName: self.params.source,
+                    targetName: self.params.targetSource,
+                    saveLabel: "generate AI equivalent class",
+                },
+                { onSave: onSave, onExport: onExport },
+            );
+            // Reveal the advance bubble ("Generate subclass of and inverse subclass of") — no save required.
+            self.myBotEngine.nextStep();
         },
         subclassAiFn: function () {
             hideOtherStepSections(self.params.aiSubclassDivId);
+            // Carry the unchecked Exact match AI (from the equivalent step) to the remaining bucket.
+            if (self.params.aiBuckets.exactAi.length > 0) {
+                var equivSplit = AlignWorkflow.getAiCheckSplit(self.params.aiEquivDivId + "_tree");
+                self.params.aiRemaining = self.params.aiRemaining.concat(equivSplit.unchecked);
+            }
             var subPairs = self.params.aiBuckets.subclassOf.concat(self.params.aiBuckets.subclassOfInverse);
             if (subPairs.length === 0) {
                 alert("No SubclassOf / SubclassOf inverse — moving to the next step.");
@@ -271,27 +293,40 @@ var Panorama_bot = (function () {
 
             var onSave = function (treeDivId) {
                 var split = AlignWorkflow.getAiCheckSplit(treeDivId);
-                self.params.aiRemaining = self.params.aiRemaining.concat(split.unchecked);
                 AlignWorkflow.generateSubClasses(self.params.source, split.checked, function (err, insertedCount) {
                     if (err) {
                         window.UI.message("Error inserting subClassOf: " + (err.message || err), true);
                         return;
                     }
                     window.UI.message(insertedCount + " subClassOf triples generated in " + self.params.source, true);
-                    self.myBotEngine.nextStep();
                 });
             };
             var onExport = function (treeDivId) {
                 var split = AlignWorkflow.getAiCheckSplit(treeDivId);
-                self.params.aiRemaining = self.params.aiRemaining.concat(split.unchecked);
                 AlignWorkflow.exportPairsToCsv(split.checked, columns, "subclass_AI.csv");
-                self.myBotEngine.nextStep();
             };
-            AlignWorkflow.renderAiValidationStep(self.params.aiSubclassDivId, subPairs, { title: "SubclassOf / SubclassOf inverse → subClassOf", sourceName: self.params.source, targetName: self.params.targetSource }, onSave, onExport);
+            AlignWorkflow.renderAiValidationStep(
+                self.params.aiSubclassDivId,
+                subPairs,
+                {
+                    title: "SubclassOf / SubclassOf inverse → subClassOf",
+                    sourceName: self.params.source,
+                    targetName: self.params.targetSource,
+                    saveLabel: "generate subclass of and inverse subclass of",
+                },
+                { onSave: onSave, onExport: onExport },
+            );
+            // Reveal the advance bubble ("Show remaining").
+            self.myBotEngine.nextStep();
         },
         remainingFn: function () {
             hideOtherStepSections(self.params.aiRemainingDivId);
             var buckets = self.params.aiBuckets;
+            // Carry the unchecked SubclassOf / inverse (from the subclass step) to the remaining bucket.
+            if (buckets.subclassOf.length + buckets.subclassOfInverse.length > 0) {
+                var subSplit = AlignWorkflow.getAiCheckSplit(self.params.aiSubclassDivId + "_tree");
+                self.params.aiRemaining = self.params.aiRemaining.concat(subSplit.unchecked);
+            }
             var remaining = self.params.aiRemaining.concat(buckets.notMatch, buckets.unknown, buckets.other);
             if (remaining.length === 0) {
                 alert("No remaining rows to export — end of workflow.");

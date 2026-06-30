@@ -619,14 +619,19 @@ var AlignWorkflow = (function () {
      * @returns {void}
      */
     self.renderAiCheckTree = function (divId, pairs, onReady) {
-        self._aiPairByNodeId = {};
+        if (!self._aiPairByNodeIdByDiv) {
+            self._aiPairByNodeIdByDiv = {};
+        }
+        var pairByNodeId = {};
+        self._aiPairByNodeIdByDiv[divId] = pairByNodeId;
         var jstreeData = [];
         pairs.forEach(function (pair) {
             var nodeId = pairNodeId(pair);
-            self._aiPairByNodeId[nodeId] = pair;
+            pairByNodeId[nodeId] = pair;
             var text = "<span style='display:inline-block;min-width:200px'>" + escapeHtml(pair.srcLabel) + "</span>";
             text += "<span style='display:inline-block;min-width:200px'>" + escapeHtml(pair.tgtLabel) + "</span>";
-            text += "<span style='color:#888'>" + escapeHtml(pair.category) + "</span>";
+            text += "<span style='display:inline-block;min-width:140px;color:#888'>" + escapeHtml(pair.category) + "</span>";
+            text += "<span style='color:#555'>" + escapeHtml(pair.reason) + "</span>";
             jstreeData.push({ id: nodeId, parent: "#", text: text, data: { type: "pair", pair: pair } });
         });
         var options = { withCheckboxes: true };
@@ -642,11 +647,15 @@ var AlignWorkflow = (function () {
     };
 
     /**
-     * Reads an AI-check tree and splits its pairs into checked / unchecked.
+     * Reads an AI-check tree and splits its pairs into checked / unchecked (per-div map, safe if absent).
      * @param {string} divId - The tree container div id.
      * @returns {{checked: Array, unchecked: Array}}
      */
     self.getAiCheckSplit = function (divId) {
+        var pairByNodeId = {};
+        if (self._aiPairByNodeIdByDiv && self._aiPairByNodeIdByDiv[divId]) {
+            pairByNodeId = self._aiPairByNodeIdByDiv[divId];
+        }
         var tree = $("#" + divId).jstree(true);
         var checkedSet = {};
         if (tree && tree.get_checked) {
@@ -656,8 +665,8 @@ var AlignWorkflow = (function () {
         }
         var checked = [];
         var unchecked = [];
-        Object.keys(self._aiPairByNodeId).forEach(function (nodeId) {
-            var pair = self._aiPairByNodeId[nodeId];
+        Object.keys(pairByNodeId).forEach(function (nodeId) {
+            var pair = pairByNodeId[nodeId];
             if (checkedSet[nodeId]) {
                 checked.push(pair);
             } else {
@@ -676,7 +685,7 @@ var AlignWorkflow = (function () {
      * @param {function} onExport - Called with the tree div id when "Exporter" is clicked.
      * @returns {void}
      */
-    self.renderAiValidationStep = function (divId, pairs, options, onSave, onExport) {
+    self.renderAiValidationStep = function (divId, pairs, options, handlers) {
         $("#" + divId).parent().show();
         var treeDivId = divId + "_tree";
         var saveBtnId = divId + "_save";
@@ -684,6 +693,7 @@ var AlignWorkflow = (function () {
         var title = "";
         var sourceName = "source";
         var targetName = "target";
+        var saveLabel = "Enregistrer";
         if (options) {
             if (options.title) {
                 title = options.title;
@@ -694,43 +704,40 @@ var AlignWorkflow = (function () {
             if (options.targetName) {
                 targetName = options.targetName;
             }
+            if (options.saveLabel) {
+                saveLabel = options.saveLabel;
+            }
         }
         var html = "";
         if (title) {
             html += "<div style='margin-bottom:4px;font-weight:bold;'>" + escapeHtml(title) + " (" + pairs.length + ")</div>";
         }
-        if (pairs.length === 0) {
-            html += "<div style='color:#888;margin-bottom:4px;'>(aucune ligne dans cette catégorie)</div>";
-        }
         // Column header aligned with the jstree node columns (left padding for the checkbox + icon).
         html += "<div style='font-weight:bold;border-bottom:1px solid #ccc;padding:2px 0 2px 44px;'>";
         html += "<span style='display:inline-block;min-width:200px'>" + escapeHtml(sourceName) + "</span>";
         html += "<span style='display:inline-block;min-width:200px'>" + escapeHtml(targetName) + "</span>";
-        html += "<span>type</span>";
+        html += "<span style='display:inline-block;min-width:140px'>type</span>";
+        html += "<span>reason</span>";
         html += "</div>";
         html += "<div id='" + treeDivId + "' style='max-height:280px;overflow:auto;'></div>";
         html += "<div style='margin-top:6px;'>";
-        html += "<button id='" + saveBtnId + "' style='margin-right:6px;'>Enregistrer</button>";
+        html += "<button id='" + saveBtnId + "' style='margin-right:6px;'>" + escapeHtml(saveLabel) + "</button>";
         html += "<button id='" + exportBtnId + "'>Exporter (CSV)</button>";
         html += "</div>";
         $("#" + divId).html(html);
 
-        // Wire the buttons immediately (independent of the jstree load) so they always respond.
+        // Save / Export act on the current selection WITHOUT advancing (advancing is a bot-bubble step).
         $("#" + saveBtnId)
             .off("click")
             .on("click", function () {
-                onSave(treeDivId);
+                handlers.onSave(treeDivId);
             });
         $("#" + exportBtnId)
             .off("click")
             .on("click", function () {
-                onExport(treeDivId);
+                handlers.onExport(treeDivId);
             });
 
-        if (pairs.length === 0) {
-            self._aiPairByNodeId = {};
-            return;
-        }
         self.renderAiCheckTree(treeDivId, pairs, null);
     };
 
