@@ -682,8 +682,18 @@ var AlignWorkflow = (function () {
         var saveBtnId = divId + "_save";
         var exportBtnId = divId + "_export";
         var title = "";
-        if (options && options.title) {
-            title = options.title;
+        var sourceName = "source";
+        var targetName = "target";
+        if (options) {
+            if (options.title) {
+                title = options.title;
+            }
+            if (options.sourceName) {
+                sourceName = options.sourceName;
+            }
+            if (options.targetName) {
+                targetName = options.targetName;
+            }
         }
         var html = "";
         if (title) {
@@ -692,32 +702,36 @@ var AlignWorkflow = (function () {
         if (pairs.length === 0) {
             html += "<div style='color:#888;margin-bottom:4px;'>(aucune ligne dans cette catégorie)</div>";
         }
-        html += "<div id='" + treeDivId + "' style='max-height:300px;overflow:auto;'></div>";
+        // Column header aligned with the jstree node columns (left padding for the checkbox + icon).
+        html += "<div style='font-weight:bold;border-bottom:1px solid #ccc;padding:2px 0 2px 44px;'>";
+        html += "<span style='display:inline-block;min-width:200px'>" + escapeHtml(sourceName) + "</span>";
+        html += "<span style='display:inline-block;min-width:200px'>" + escapeHtml(targetName) + "</span>";
+        html += "<span>type</span>";
+        html += "</div>";
+        html += "<div id='" + treeDivId + "' style='max-height:280px;overflow:auto;'></div>";
         html += "<div style='margin-top:6px;'>";
         html += "<button id='" + saveBtnId + "' style='margin-right:6px;'>Enregistrer</button>";
         html += "<button id='" + exportBtnId + "'>Exporter (CSV)</button>";
         html += "</div>";
         $("#" + divId).html(html);
 
-        function wireButtons() {
-            $("#" + saveBtnId)
-                .off("click")
-                .on("click", function () {
-                    onSave(treeDivId);
-                });
-            $("#" + exportBtnId)
-                .off("click")
-                .on("click", function () {
-                    onExport(treeDivId);
-                });
-        }
+        // Wire the buttons immediately (independent of the jstree load) so they always respond.
+        $("#" + saveBtnId)
+            .off("click")
+            .on("click", function () {
+                onSave(treeDivId);
+            });
+        $("#" + exportBtnId)
+            .off("click")
+            .on("click", function () {
+                onExport(treeDivId);
+            });
 
         if (pairs.length === 0) {
             self._aiPairByNodeId = {};
-            wireButtons();
             return;
         }
-        self.renderAiCheckTree(treeDivId, pairs, wireButtons);
+        self.renderAiCheckTree(treeDivId, pairs, null);
     };
 
     /**

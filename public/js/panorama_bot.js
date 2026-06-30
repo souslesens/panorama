@@ -24,6 +24,27 @@ var Panorama_bot = (function () {
     }
 
     /**
+     * Hides every step result section except the one to keep, so the bot shows only the current step.
+     * @param {string} keepDivId - The result div id of the current step (its section stays visible).
+     * @returns {void}
+     */
+    function hideOtherStepSections(keepDivId) {
+        var stepDivIds = [
+            self.params.validationDivId,
+            self.params.nonExactDivId,
+            self.params.aiDivId,
+            self.params.aiEquivDivId,
+            self.params.aiSubclassDivId,
+            self.params.aiRemainingDivId,
+        ];
+        stepDivIds.forEach(function (divId) {
+            if (divId !== keepDivId) {
+                $("#" + divId).parent().hide();
+            }
+        });
+    }
+
+    /**
      * Starts the alignment bot.
      * @param {Object} [workflow] - Optional workflow override.
      * @param {Object} _params - { bulkSimilars, fromWordsMap, source, targetSource, botDivId, validationDivId, nonExactDivId }.
@@ -86,7 +107,7 @@ var Panorama_bot = (function () {
                                             buildDefinitionsFn: {
                                                 aiTreatmentFn: {
                                                     _OR: {
-                                                        "Generate equivalent class": {
+                                                        "Generate AI equivalent class": {
                                                             equivalentClassAiFn: {
                                                                 _OR: {
                                                                     "Generate subclass of and inverse subclass of": {
@@ -142,8 +163,8 @@ var Panorama_bot = (function () {
             self.myBotEngine.nextStep();
         },
         showValidationFn: function () {
-            // Sequence: hide the non-exacts section until equivalentClass generation has run.
-            $("#" + self.params.nonExactDivId).parent().hide();
+            // Show only this step's section.
+            hideOtherStepSections(self.params.validationDivId);
             var headerInfo = {
                 headerDivId: "Panorama_validationHeader",
                 sourceName: self.params.source,
@@ -171,6 +192,7 @@ var Panorama_bot = (function () {
             });
         },
         showNonExactFn: function () {
+            hideOtherStepSections(self.params.nonExactDivId);
             AlignWorkflow.renderNonExact(self.params.nonExactDivId, self.params.nonExact);
             self.myBotEngine.nextStep();
         },
@@ -189,8 +211,9 @@ var Panorama_bot = (function () {
             });
         },
         aiTreatmentFn: function () {
+            hideOtherStepSections(self.params.aiDivId);
             // Classifies the non-exacts via the AI route (non-exacts + definitions table), using the
-            // model configured in mainConfig.llm. Also persists the input for the benchmark script.
+            // model configured in mainConfig.llm.
             AlignWorkflow.runAiTreatment(self.params.source, self.params.targetSource, self.params.nonExact, AlignWorkflow.definitions, self.params.aiDivId, function (err) {
                 if (err) {
                     var message = err.message;
@@ -204,10 +227,16 @@ var Panorama_bot = (function () {
             });
         },
         equivalentClassAiFn: function () {
+            hideOtherStepSections(self.params.aiEquivDivId);
             // Recover URIs for the LLM classifications, split by category, and start the post-AI flow.
             var enriched = AlignWorkflow.enrichWithUris(AlignWorkflow.aiTreatment.classifications, self.params.nonExact);
             self.params.aiBuckets = AlignWorkflow.splitByAiCategory(enriched);
             self.params.aiRemaining = [];
+            if (self.params.aiBuckets.exactAi.length === 0) {
+                alert("No Exact match AI — moving to the next step.");
+                self.myBotEngine.nextStep();
+                return;
+            }
             var columns = aiCsvColumns(self.params.source, self.params.targetSource);
 
             var onSave = function (treeDivId) {
@@ -228,10 +257,16 @@ var Panorama_bot = (function () {
                 AlignWorkflow.exportPairsToCsv(split.checked, columns, "equivalent_class_AI.csv");
                 self.myBotEngine.nextStep();
             };
-            AlignWorkflow.renderAiValidationStep(self.params.aiEquivDivId, self.params.aiBuckets.exactAi, { title: "Exact match AI → equivalentClass" }, onSave, onExport);
+            AlignWorkflow.renderAiValidationStep(self.params.aiEquivDivId, self.params.aiBuckets.exactAi, { title: "Exact match AI → equivalentClass", sourceName: self.params.source, targetName: self.params.targetSource }, onSave, onExport);
         },
         subclassAiFn: function () {
+            hideOtherStepSections(self.params.aiSubclassDivId);
             var subPairs = self.params.aiBuckets.subclassOf.concat(self.params.aiBuckets.subclassOfInverse);
+            if (subPairs.length === 0) {
+                alert("No SubclassOf / SubclassOf inverse — moving to the next step.");
+                self.myBotEngine.nextStep();
+                return;
+            }
             var columns = aiCsvColumns(self.params.source, self.params.targetSource);
 
             var onSave = function (treeDivId) {
@@ -252,11 +287,17 @@ var Panorama_bot = (function () {
                 AlignWorkflow.exportPairsToCsv(split.checked, columns, "subclass_AI.csv");
                 self.myBotEngine.nextStep();
             };
-            AlignWorkflow.renderAiValidationStep(self.params.aiSubclassDivId, subPairs, { title: "SubclassOf / SubclassOf inverse → subClassOf" }, onSave, onExport);
+            AlignWorkflow.renderAiValidationStep(self.params.aiSubclassDivId, subPairs, { title: "SubclassOf / SubclassOf inverse → subClassOf", sourceName: self.params.source, targetName: self.params.targetSource }, onSave, onExport);
         },
         remainingFn: function () {
+            hideOtherStepSections(self.params.aiRemainingDivId);
             var buckets = self.params.aiBuckets;
             var remaining = self.params.aiRemaining.concat(buckets.notMatch, buckets.unknown, buckets.other);
+            if (remaining.length === 0) {
+                alert("No remaining rows to export — end of workflow.");
+                self.myBotEngine.nextStep();
+                return;
+            }
             var columns = aiCsvColumns(self.params.source, self.params.targetSource);
             var onExport = function () {
                 AlignWorkflow.exportPairsToCsv(remaining, columns, "remaining_AI.csv");
